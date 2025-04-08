@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>휘매쓰 학생 출석 대시보드</title>
+  <style>
+    body {
+      font-family: 'Noto Sans KR', Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+    }
+    
+    header {
+      background-color: #4CAF50;
+      color: white;
+      text-align: center;
+      padding: 1em 0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    .controls {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .grade-selector {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .grade-selector label {
+      font-weight: bold;
+      font-size: 16px;
+    }
+    
+    .grade-selector select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+      min-width: 150px;
+    }
+    
+    .current-date {
+      font-weight: bold;
+      font-size: 16px;
+    }
+    
+    .dashboard-container {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      overflow-x: auto;
+    }
+    
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 10px;
+    }
+    
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: center;
+    }
+    
+    th {
+      background-color: #f2f2f2;
+      position: sticky;
+      top: 0;
+      font-weight: bold;
+    }
+    
+    td:first-child {
+      position: sticky;
+      left: 0;
+      background-color: #f9f9f9;
+      z-index: 1;
+      font-weight: bold;
+    }
+    
+    th:first-child {
+      z-index: 2;
+      background-color: #f2f2f2;
+    }
+    
+    tr.today td {
+      background-color: #e7f3ff;
+    }
+    
+    tr.today td:first-child {
+      background-color: #d0e8ff;
+      font-weight: bold;
+    }
+    
+    .attendance-o {
+      color: #4CAF50;
+      font-weight: bold;
+      font-size: 16px;
+    }
+    
+    .attendance-x {
+      color: #f44336;
+      font-size: 16px;
+    }
+    
+    .export-button {
+      margin-top: 20px;
+      text-align: right;
+    }
+    
+    .export-button button {
+      padding: 10px 20px;
+      background-color: #007BFF;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    
+    .export-button button:hover {
+      background-color: #0056b3;
+    }
+    
+    .summary {
+      margin-top: 20px;
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .summary h2 {
+      margin-top: 0;
+      color: #333;
+    }
+    
+    .stats {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    
+    .stat-card {
+      flex: 1;
+      min-width: 200px;
+      padding: 15px;
+      border-radius: 8px;
+      background-color: #f9f9f9;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .stat-card h3 {
+      margin-top: 0;
+      color: #555;
+      font-size: 14px;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+    }
+    
+    footer {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
+  
+  <!-- xlsx, FileSaver.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.min.js"></script>
+  
+  <script>
+    // 학생 데이터 정의
+    const studentsByGrade = {
+      '초6': ['박선유'],
+      '중1': ['서연', '제갈훈', '이주하', '이예찬', '장주영', '이가현'],
+      '중2': ['박준서', '여예준', '현주원'],
+      '중3': ['박시후'],
+      '고1': ['임가희', '남지윤', '김준희'],
+      '고23': ['김석훈', '류연우', '박규민', '김보리', '박다현', '이지은', '서채연'],
+      '휘연챌': ['김시후', '알시아', '우아인', '송지우', '김주한', '김주원', '오지후', '신서영', '오지민', '변재서', '정시윤']
+    };
+    
+    // 전역 변수
+    let gameData = [];
+    let currentGrade = '전체';
+    
+    // API로 게임 데이터 가져오기
+    async function fetchGameData(page = 1, pageSize = 1000000) {
+      try {
+        const response = await fetch(`https://us-central1-record-f420d.cloudfunctions.net/getGameData?page=${page}&pageSize=${pageSize}`);
+        const result = await response.json();
+        
+        if (result.data && Array.isArray(result.data)) {
+          gameData = result.data;
+          renderGradeSelector();
+          renderAttendanceDashboard();
+        } else {
+          console.warn('예상치 못한 게임 데이터 형식 반환:', result);
+        }
+      } catch (error) {
+        console.error('게임 API 호출 오류:', error);
+      }
+    }
+    
+    // 학년 선택 드롭다운 렌더링
+    function renderGradeSelector() {
+      const gradeSelector = document.getElementById('grade-selector');
+      
+      // 전체 옵션 추가
+      let options = '<option value="전체">전체</option>';
+      
+      // 각 학년 옵션 추가
+      for (const grade in studentsByGrade) {
+        options += `<option value="${grade}">${grade}</option>`;
+      }
+      
+      gradeSelector.innerHTML = options;
+      
+      // 선택 변경 이벤트 핸들러
+      gradeSelector.addEventListener('change', function() {
+        currentGrade = this.value;
+        renderAttendanceDashboard();
+      });
+    }
+    
+    // 현재 날짜 표시
+    function displayCurrentDate() {
+      const now = new Date();
+      const options = { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric', 
+        weekday: 'long' 
+      };
+      const dateString = now.toLocaleDateString('ko-KR', options);
+      document.getElementById('current-date').textContent = dateString;
+    }
+    
+    // 최근 30일 날짜 배열 생성
+    function getLast30Days() {
+      const dates = [];
+      const today = new Date();
+      
+      for (let i = 0; i < 30; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        dates.push({
+          dateStr,
+          dateObj: new Date(date),
+          isToday: i === 0
+        });
+      }
+      
+      return dates;
+    }
+    
+    // 사용자별 일일 점수 처리
+    function processAttendanceData(gameData, targetStudents = null) {
+      const userDailyScores = new Map();
+      
+      // 최근 30일 데이터만 필터링
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      // 먼저 각 사용자별로 날짜별 높은 점수 게임들 모두 수집
+      const userDailyGames = new Map();
+      
+      gameData.filter(record => {
+        // 날짜 필터링
+        const isRecentData = new Date(record.timestamp) >= thirtyDaysAgo;
+        
+        // 학생 필터링 (특정 학생 목록이 제공된 경우)
+        const isTargetStudent = !targetStudents || targetStudents.includes(record.name);
+        
+        return isRecentData && isTargetStudent;
+      }).forEach(record => {
+        const { name, score, timestamp } = record;
+        const date = new Date(timestamp);
+        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        
+        // 사용자 맵 초기화
+        if (!userDailyGames.has(name)) {
+          userDailyGames.set(name, new Map());
+        }
+        
+        // 사용자의 날짜별 게임 기록 맵 가져오기
+        const userGames = userDailyGames.get(name);
+        
+        // 날짜별 게임 기록 맵 초기화
+        if (!userGames.has(dateStr)) {
+          userGames.set(dateStr, []);
+        }
+        
+        // 100점 이상인 게임만 추가
+        if (score >= 100) {
+          userGames.get(dateStr).push(score);
+        }
+      });
+      
+      // 사용자별 날짜별 100점 이상 게임 횟수 계산
+      userDailyGames.forEach((userGames, userName) => {
+        const userScores = new Map();
+        
+        userGames.forEach((scores, dateStr) => {
+          // 해당 날짜의 100점 이상 기록 횟수
+          userScores.set(dateStr, scores.length);
+        });
+        
+        userDailyScores.set(userName, userScores);
+      });
+      
+      return userDailyScores;
+    }
+    
+    // 출석 대시보드 렌더링
+    function renderAttendanceDashboard() {
+      const dates = getLast30Days();
+      
+      // 현재 선택된 학년에 따라 학생 목록 필터링
+      let targetStudents = null;
+      if (currentGrade !== '전체') {
+        targetStudents = studentsByGrade[currentGrade];
+      } else {
+        // 전체 선택 시 모든 학생 포함
+        targetStudents = Object.values(studentsByGrade).flat();
+      }
+      
+      const userDailyScores = processAttendanceData(gameData, targetStudents);
+      
+      // 실제 데이터에 있는 학생만 필터링
+      const activeStudents = Array.from(userDailyScores.keys()).filter(name => 
+        !targetStudents || targetStudents.includes(name)
+      ).sort();
+      
+      // 테이블 헤더 생성 (이름으로)
+      const tableHeader = document.getElementById('attendance-header');
+      tableHeader.innerHTML = '<th>날짜/이름</th>';
+      
+      activeStudents.forEach(userName => {
+        tableHeader.innerHTML += `<th>${userName}</th>`;
+      });
+      
+      // 테이블 바디 생성 (날짜로)
+      const tableBody = document.getElementById('attendance-body');
+      tableBody.innerHTML = '';
+      
+      // 학생 출석률 계산을 위한 데이터
+      const attendanceStats = {};
+      activeStudents.forEach(name => {
+        attendanceStats[name] = { total: 0, attended: 0 };
+      });
+      
+      // 날짜별 출석률 계산을 위한 데이터
+      const dateStats = {};
+      dates.forEach(date => {
+        dateStats[date.dateStr] = { total: 0, attended: 0 };
+      });
+      
+      dates.forEach(date => {
+        const month = date.dateObj.getMonth() + 1;
+        const day = date.dateObj.getDate();
+        const dateLabel = `${month}/${day}`;
+        const rowClass = date.isToday ? 'today' : '';
+        
+        let rowHTML = `<tr class="${rowClass}"><td>${dateLabel}</td>`;
+        
+        activeStudents.forEach(userName => {
+          const userScores = userDailyScores.get(userName);
+          const count = userScores && userScores.get(date.dateStr) || 0;
+          const isAttending = count > 0;
+          const attendanceClass = isAttending ? 'attendance-o' : 'attendance-x';
+          const attendanceMark = isAttending ? (count > 1 ? `O×${count}` : 'O') : 'X';
+          
+          // 학생별 출석 통계 업데이트
+          attendanceStats[userName].total++;
+          if (isAttending) attendanceStats[userName].attended++;
+          
+          // 날짜별 출석 통계 업데이트
+          dateStats[date.dateStr].total++;
+          if (isAttending) dateStats[date.dateStr].attended++;
+          
+          rowHTML += `<td class="${attendanceClass}">${attendanceMark}</td>`;
+        });
+        
+        rowHTML += '</tr>';
+        tableBody.innerHTML += rowHTML;
+      });
+      
+      // 출석률 통계 렌더링
+      renderAttendanceStats(attendanceStats, dateStats);
+    }
+    
+    // 출석률 통계 렌더링
+    function renderAttendanceStats(attendanceStats, dateStats) {
+      const statsContainer = document.getElementById('stats-container');
+      
+      // 전체 출석률 계산
+      let totalAttendance = 0;
+      let totalDays = 0;
+      
+      for (const name in attendanceStats) {
+        totalAttendance += attendanceStats[name].attended;
+        totalDays += attendanceStats[name].total;
+      }
+      
+      const overallRate = totalDays > 0 ? Math.round((totalAttendance / totalDays) * 100) : 0;
+      
+      // 오늘 출석률 계산
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const todayStats = dateStats[todayStr] || { total: 0, attended: 0 };
+      const todayRate = todayStats.total > 0 ? Math.round((todayStats.attended / todayStats.total) * 100) : 0;
+      
+      // 최근 7일 출석률 계산
+      let weekAttendance = 0;
+      let weekTotal = 0;
+      
+      const dates = getLast30Days();
+      dates.slice(0, 7).forEach(date => {
+        const stats = dateStats[date.dateStr];
+        if (stats) {
+          weekAttendance += stats.attended;
+          weekTotal += stats.total;
+        }
+      });
+      
+      const weekRate = weekTotal > 0 ? Math.round((weekAttendance / weekTotal) * 100) : 0;
+      
+      // 통계 카드 렌더링
+      statsContainer.innerHTML = `
+        <div class="stat-card">
+          <h3>오늘 출석률</h3>
+          <div class="stat-value">${todayRate}%</div>
+        </div>
+        <div class="stat-card">
+          <h3>최근 7일 출석률</h3>
+          <div class="stat-value">${weekRate}%</div>
+        </div>
+        <div class="stat-card">
+          <h3>전체 출석률</h3>
+          <div class="stat-value">${overallRate}%</div>
+        </div>
+      `;
+    }
+    
+    // 엑셀로 내보내기
+    function exportToExcel() {
+      if (!XLSX) {
+        console.error('XLSX 라이브러리가 로드되지 않았습니다.');
+        return;
+      }
+      
+      const dates = getLast30Days();
+      
+      // 현재 선택된 학년에 따라 학생 목록 필터링
+      let targetStudents = null;
+      if (currentGrade !== '전체') {
+        targetStudents = studentsByGrade[currentGrade];
+      } else {
+        // 전체 선택 시 모든 학생 포함
+        targetStudents = Object.values(studentsByGrade).flat();
+      }
+      
+      const userDailyScores = processAttendanceData(gameData, targetStudents);
+      
+      // 실제 데이터에 있는 학생만 필터링
+      const activeStudents = Array.from(userDailyScores.keys()).filter(name => 
+        !targetStudents || targetStudents.includes(name)
+      ).sort();
+      
+      // 엑셀 데이터 준비
+      const excelData = [];
+      
+      dates.forEach(date => {
+        const month = date.dateObj.getMonth() + 1;
+        const day = date.dateObj.getDate();
+        const dateLabel = `${month}/${day}`;
+        
+        const row = { '날짜': dateLabel };
+        
+        activeStudents.forEach(userName => {
+          const userScores = userDailyScores.get(userName);
+          const score = userScores && userScores.get(date.dateStr) || 0;
+          row[userName] = score >= 200 ? 'O' : 'X';
+        });
+        
+        excelData.push(row);
+      });
+      
+      // 워크시트 생성
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "출석 현황");
+      
+      // 파일명 설정 및 내보내기
+      const today = new Date();
+      const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+      const gradeLabel = currentGrade !== '전체' ? `_${currentGrade}` : '';
+      const fileName = `휘매쓰_출석현황${gradeLabel}_${dateStr}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+    }
+    
+    // 페이지 로드 시 실행
+    window.onload = () => {
+      displayCurrentDate();
+      fetchGameData();
+    };
+  </script>
+</head>
+<body>
+  <header>
+    <h1>휘매쓰 학생 출석 대시보드</h1>
+  </header>
+  
+  <main>
+    <div class="controls">
+      <div class="grade-selector">
+        <label for="grade-selector">학년 선택:</label>
+        <select id="grade-selector">
+          <!-- 학년 옵션은 자바스크립트로 동적 생성 -->
+        </select>
+      </div>
+      <div id="current-date" class="current-date"></div>
+    </div>
+    
+    <div class="summary">
+      <h2>출석 통계</h2>
+      <div id="stats-container" class="stats">
+        <!-- 통계 데이터는 자바스크립트로 동적 생성 -->
+      </div>
+    </div>
+    
+    <div class="dashboard-container">
+      <table>
+        <thead>
+          <tr id="attendance-header">
+            <th>날짜/이름</th>
+            <!-- 이름 헤더는 자바스크립트로 동적 생성 -->
+          </tr>
+        </thead>
+        <tbody id="attendance-body">
+          <!-- 날짜별 출석 데이터는 자바스크립트로 동적 생성 -->
+        </tbody>
+      </table>
+    </div>
+    
+    <div class="export-button">
+      <button onclick="exportToExcel()">엑셀로 내보내기</button>
+    </div>
+  </main>
+  
+  <footer>
+    <p>© 2025 휘매쓰 학생 출석 대시보드</p>
+  </footer>
+</body>
+</html>
